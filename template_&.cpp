@@ -1,9 +1,14 @@
+#include <array>
 #include <iostream>
 
 /*
 в шаблонах const и ref убираются, а * опционально
 
 полная специализация - там, где после template пустые <>
+
+typename = class
+
+type trait - шаблонные структуры, позволяющие делать операции с типами на этаме компиляции, например, std::is_same
 */
 
 // -------------------------------------------------------------------------
@@ -176,3 +181,241 @@ struct f {};
 template<typename T>
 struct f {}; 
 // ОЧЕНЬ ПЛОХО
+
+// -------------------------------------------------------------------------
+
+// Template template parameters
+
+template<typename T, template <typename, typename> typename Container>
+struct Stack {
+  Container<T, T> cont;
+};
+
+template<typename T, template <typename> typename Container = std::vector>
+struct Stack {
+  Container<T> cont;
+};
+
+// -------------------------------------------------------------------------
+
+// Если не сделать базу, то будет ошибка выполнения самой программы компилятор
+
+template<size_t N, size_t D>
+struct Helper {
+  static const bool value = N % D == 0 ? false : Helper<N, D - 1>::value;
+};
+
+template<size_t N>
+struct Helper<N, 1> {
+  static const bool value = true;
+};
+
+template<size_t N>
+struct IsPrime {
+  static const bool value = Helper<N, N - 1>::value;
+};
+
+template<>
+struct IsPrime<1> {
+  static const bool value = false;
+};
+
+int main() {
+  std::cout << IsPrime<6 + 1>::value;
+}
+
+// -------------------------------------------------------------------------
+
+// Depended names (зависимые имена)
+
+template <typename T>
+struct S {
+  using A = int;
+};
+template <>
+struct S<double> {
+  static const int A = 5;
+};
+
+int x = 0;
+
+template <typename T>
+void f() {
+  S<T>::A* x;
+}
+
+/*
+при f<double> будет выражение: 5 * 0; (expression)
+в данном случае компилятор до подстановки T хочет распарсить выражение
+!!! и по стандарту сказано, что подобные случаи - всегда expression, на не название типов
+*/ 
+
+template <typename T>
+void f() {
+  typename S<T>::A* x;
+}
+/*
+А теперь int* x, то есть в данном случае S<T>::A - тип (мы явно указали)
+НО: нельзя теперь double запихать, потому что синтаксис неизменен: либо тип, либо выражение для всех T
+*/
+
+// -------------------------------------------------------------------------
+
+template <typename T>
+struct S {
+  template <int N>
+  using A = std::array<int, N>;
+};
+int x = 0;
+
+template <typename T>
+void f() {
+  S<T>::A< 10 > x; // Expression (переменная A меньше 10, больше x)
+}
+
+// -------------------------------------------------------------------------
+
+template <typename T>
+struct S {
+  template <int N>
+  using A = std::array<int, N>;
+};
+int x = 0;
+
+template <typename T>
+void f() {
+  typename S<T>::template A< 10 > x; // std::array<int, 10> x
+}
+
+// -------------------------------------------------------------------------
+
+template <typename T>
+struct S {
+  template <int N>
+  void foo(int) {}
+};
+
+template <typename T>
+void bar(int x, int y) {
+  S<T> s;
+  s.template foo<1>(x + y);
+}
+/*
+Здесь без template будет выражение (если foo - поле S)
+*/
+
+// -------------------------------------------------------------------------
+
+template <typename T>
+struct Base {
+  int x = 0;
+};
+
+template <>
+struct Base<double> {
+};
+
+template <typename T>
+struct Derived : Base<T> {
+  void f() {
+    ++this->x;
+  }
+};
+
+/*
+Просто запомнить, что здесь нужен this (обращение к полю шаблонного родителя), или ++Base<T>::x;
+*/
+
+// -------------------------------------------------------------------------
+
+template <typename ... types> // объявили пачку типов
+void f(types ... tx) { // ... - распаковали пачку типов (tx - пачка переменных)
+  std::cout << sizeof...(tx) << '\n';
+  next(tx...); // тоже распаковываем дальше
+}
+
+// -------------------------------------------------------------------------
+
+template <typename T>
+void print(T head) {                      // 1
+  std::cout << head << '\n';
+}
+
+template <typename T, typename ... types>
+void print(T head, types ... tail) {      // 2
+  std::cout << head << '\n';
+  print(tail...);
+}
+
+/*
+с одним аргументом выиграет 1, также обязательно должна быть остаточная функция (конечное число аргументов), можно и такую (но обязательно перед variadic template function)
+*/
+
+void print() {}
+
+template <typename T, typename ... types>
+void print(const T& head, const types& ... tail) {
+  std::cout << head << '\n';
+  print(tail...);
+}
+
+/*
+Можно и так (по ссылке), применится к каждому объекту
+*/
+
+// -------------------------------------------------------------------------
+
+// Fold expressions (вырвжение свёртки since c++17)
+
+template<typename... tail>
+struct S {
+  static const bool value = (std::is_pointer_v<tail> && ...); 
+};
+
+// Compile time
+
+template<typename Head, typename... tail>
+struct is_same_types {
+  static const bool value = (std::is_same_v<Head, tail> && ...);
+};
+
+
+1) Unary right fold (E op ...) becomes (E_1 op (... op (E_(N-1) op E_N)))
+2) Unary left fold (... op E) becomes (((E_1 op E_2) op ...) op E_N)
+3) Binary right fold (E op ... op I) becomes (E_1 op (... op (E_(N−1) op (E_N op I))))
+4) Binary left fold (I op ... op E) becomes ((((I op E_1) op E_2) op ...) op E_N)
+
+template <typename ... types>
+void print(const types& ... tail) {
+  (std::cout << ... << tail) << '\n';
+}
+
+3): 
+(a + ... + z)     →  (a + (b + (c + z)))
+(a && ... && true) → (a && (b && (c && true)))
+
+template<typename... Ts>
+auto sum_right_init(auto init, Ts... args) {
+    return (args + ... + init);  // binary right fold
+}
+
+2)
+(... + args)   →  ((a + b) + c)
+(... && args)  →  ((a && b) && c)
+
+// -------------------------------------------------------------------------
+
+// CRTP (Curiously Recursive Template Pattern)
+
+template<typename T>
+struct Base {
+  T a; // CE
+  T* ptr; // OK
+  T& ref; // OK
+  T func() {
+    static_cast<T*>(this)->add();
+    return T();
+  }
+};
+
+struct Derived : Base<Derived> { void add() {} };
