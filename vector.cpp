@@ -11,7 +11,7 @@ class vector {
   
   void Reserve(size_t ncap) {
     if (ncap <= cp_) return;
-    T* nd = reinterpret_cast<T*>(new char[ncap * sizeof(T)]);
+    T* nd = static_cast<T*>(::operator new(ncap * sizeof(T)));
     // Не в блоке try, потому что мы ещё ничего создать не успели, catch попросту не нужен
 
     size_t idx = 0;
