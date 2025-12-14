@@ -390,6 +390,11 @@ void print(const types& ... tail) {
   (std::cout << ... << tail) << '\n';
 }
 
+template<typename... elems>
+auto foo(elems... e) {
+  ((std::cout << e),  ...) << '\n';
+}
+
 3): 
 (a + ... + z)     →  (a + (b + (c + z)))
 (a && ... && true) → (a && (b && (c && true)))
@@ -419,3 +424,19 @@ struct Base {
 };
 
 struct Derived : Base<Derived> { void add() {} };
+
+// -------------------------------------------------------------------------
+
+template <typename... T>
+int foo(T... head) {
+  auto get = [](int x) -> int { return x * x; };
+  return (get(head), ...);
+}
+
+// -------------------------------------------------------------------------
+
+template <typename... head>
+class A : head ... {
+  using head::operator()...;
+};
+
